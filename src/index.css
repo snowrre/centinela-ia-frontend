@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased;
+    font-family: 'Inter', -apple-system, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+:root {
+  --color-surf-dark: #0a0a0a;
+  --color-surf-light: #f8f9fa;
+}
