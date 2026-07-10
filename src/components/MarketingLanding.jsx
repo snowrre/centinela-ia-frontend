@@ -19,8 +19,9 @@ export default function MarketingLanding({ onGoToLogin }) {
       const clientId = crypto.randomUUID();
       localStorage.setItem('centinela_pending_client_id', clientId);
 
-      // Llamada al endpoint local de Flask
-      const response = await fetch('http://localhost:5000/api/create-checkout-session', {
+      // Llamada al endpoint local de Flask o nube
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
