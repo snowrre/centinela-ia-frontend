@@ -20,7 +20,7 @@ export default function MarketingLanding({ onGoToLogin }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Bypass-Tunnel-Reminder': 'true'
+          'ngrok-skip-browser-warning': 'true'
         },
         body: JSON.stringify({ plan: planType }),
       });
