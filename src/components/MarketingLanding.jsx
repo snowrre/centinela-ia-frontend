@@ -14,32 +14,27 @@ function cn(...inputs) {
 export default function MarketingLanding({ onGoToLogin }) {
   const handleCheckout = async (planType) => {
     try {
-      // 1. Generamos un ID de cliente (o usamos uno existente si el usuario estuviera logueado)
-      // Para la demo de la tesis, generamos uno temporal y lo guardamos
-      const clientId = crypto.randomUUID();
-      localStorage.setItem('centinela_pending_client_id', clientId);
-
       // Llamada al endpoint local de Flask o nube
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const response = await fetch(`${apiUrl}/api/create-checkout-session`, {
+      const response = await fetch(`${apiUrl}/api/create-preference`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Bypass-Tunnel-Reminder': 'true'
         },
-        body: JSON.stringify({ plan: planType, clientId: clientId }),
+        body: JSON.stringify({ plan: planType }),
       });
 
       const data = await response.json();
-
-      if (data.url) {
-        // Redirigir al usuario al Checkout seguro alojado por Stripe
-        window.location.href = data.url;
+      
+      if (data.init_point) {
+        // Esto te mandará directo a la pantalla azul de cobro de Mercado Pago
+        window.location.href = data.init_point;
       } else {
-        console.error("Error en la respuesta del servidor:", data.error);
+        console.error("Error en la respuesta del servidor:", data);
       }
     } catch (error) {
-      console.error("Error al conectar con el backend:", error);
+      console.error("Error al conectar con Mercado Pago:", error);
     }
   };
 
