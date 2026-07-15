@@ -58,16 +58,76 @@ export default function AdminDashboard({ darkMode }) {
 
   const fetchData = async () => {
     try {
-      const { data: logData } = await supabase
-        .from('camera_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+      // 0. IDENTIFICAR AL PROFESOR ACTUAL
+      // Usamos la sesión activa en Supabase para obtener el ID único del profesor
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+          console.error("No se detectó una sesión de usuario activa.");
+          return;
+      }
+      const idProfesorActual = user.id;
+
+      // 1. OBTENER SALAS ACTIVAS (Filtro por profesor)
+      // Agregamos el candado .eq('id_profesor', idProfesorActual)
+      const { data: examData, error: examError } = await supabase
+        .from('exams')
+        .select('id, pin_sala, titulo, tipo, created_at')
+        .eq('id_profesor', idProfesorActual) 
+        .order('created_at', { ascending: false });
       
-      setLogs(logData || []);
+      const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
+      
+      // Combinar y eliminar duplicados por PIN
+      const combined = [...(examData || [])].map(e => ({
+        ...e,
+        pin_sala: e.pin_sala,
+        titulo: e.titulo
+      }));
+      
+      localExams.forEach(local => {
+        if (!combined.find(e => e.pin === local.pin || e.pin_sala === local.pin_sala)) {
+          combined.push(local);
+        }
+      });
+      
+      // Filtro del cementerio
+      const graveyard = JSON.parse(localStorage.getItem('examenes_eliminados') || '[]');
+      const filteredExams = combined.filter(e => !graveyard.includes(String(e.pin || e.pin_sala)));
+
+      // Guardamos las salas que SÍ son de este profesor
+      setActiveExams(filteredExams);
+
+      // 2. OBTENER ALUMNOS EN LÍNEA Y ENTREGAS (Solo de las salas activas de este profesor)
+      const misPinesDeSala = filteredExams.map(e => String(e.pin || e.pin_sala));
+
+      let logData = [];
+      let subData = [];
+      
+      // Si el profesor tiene salas activas, buscamos las cámaras y entregas de esas salas
+      if (misPinesDeSala.length > 0) {
+          const { data: logs } = await supabase
+            .from('camera_logs')
+            .select('*')
+            .in('pin_sala', misPinesDeSala) // <--- CANDADO 2: Solo trae logs de TUS PINs
+            .order('created_at', { ascending: false })
+            .limit(100);
+          
+          logData = logs || [];
+
+          // Agregamos también el filtrado de entregas
+          const { data: subs } = await supabase
+            .from('exam_submissions')
+            .select('*')
+            .in('exam_pin', misPinesDeSala)
+            .order('created_at', { ascending: false });
+          subData = subs || [];
+      }
+      
+      setLogs(logData);
+      setSubmissions(subData);
 
       const status = {};
-      (logData || []).forEach(log => {
+      logData.forEach(log => {
         if (!status[log.matricula]) {
           status[log.matricula] = {
             nombre: log.nombre_completo,
@@ -80,41 +140,13 @@ export default function AdminDashboard({ darkMode }) {
           };
         }
       });
+      
+      // Guardamos el estado de los alumnos filtrados
       setStudentStatus(status);
 
-      const { data: examData, error: examError } = await supabase.from('exams')
-        .select('id, pin_sala, titulo, tipo, created_at')
-        .order('created_at', { ascending: false });
-      
-      const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
-      
-      // Combinar y eliminar duplicados por PIN
-      const combined = [...(examData || [])].map(e => ({
-        ...e,
-        pin_sala: e.pin_sala, // Mantener compatibilidad interna si otros componentes lo usan
-        titulo: e.titulo
-      }));
-      
-      localExams.forEach(local => {
-        if (!combined.find(e => e.pin === local.pin || e.pin_sala === local.pin_sala)) {
-          combined.push(local);
-        }
-      });
-      // ESCUDO DEL CEMENTERIO (Graveyard Filter)
-      const graveyard = JSON.parse(localStorage.getItem('examenes_eliminados') || '[]');
-      const filteredExams = combined.filter(e => !graveyard.includes(String(e.pin || e.pin_sala)));
-
-      setActiveExams(filteredExams);
-
-      const { data: subData } = await supabase
-        .from('exam_submissions')
-        .select('*')
-        .order('created_at', { ascending: false });
-      setSubmissions(subData || []);
-
       if (examError) console.warn("Note: Could not fetch all exams from DB, using local cache.");
-    } catch (e) {
-      console.error("Error fetching data:", e);
+    } catch (error) {
+      console.error("Error inesperado al cargar los datos del panel:", error);
       const localExams = JSON.parse(localStorage.getItem('active_exams') || '[]');
       const graveyard = JSON.parse(localStorage.getItem('examenes_eliminados') || '[]');
       setActiveExams(localExams.filter(e => !graveyard.includes(String(e.pin || e.pin_sala))));
