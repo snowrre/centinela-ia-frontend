@@ -4,6 +4,8 @@ import { Building, UploadCloud, AlertCircle, ChevronRight, CheckCircle, Loader2 
 export default function RegistroCampus() {
   const [paymentId, setPaymentId] = useState('');
   const [institution, setInstitution] = useState('');
+  const [correoAdmin, setCorreoAdmin] = useState('');
+  const [dominio, setDominio] = useState('');
   const [file, setFile] = useState(null);
 
   useEffect(() => {
@@ -34,6 +36,8 @@ export default function RegistroCampus() {
     const formData = new FormData();
     formData.append('payment_id', paymentId);
     formData.append('nombre_institucion', institution);
+    formData.append('correo_admin', correoAdmin);
+    formData.append('dominio', dominio);
     formData.append('archivo_csv', file);
 
     try {
@@ -134,6 +138,40 @@ export default function RegistroCampus() {
                     onChange={(e) => setInstitution(e.target.value)}
                     disabled={loading || success}
                     className="w-full pl-11 pr-4 py-4 bg-white/5 border border-white/10 rounded-[20px] text-sm font-bold placeholder:text-neutral-600 focus:outline-none focus:border-blue-500/50 focus:bg-blue-500/5 transition-all text-white disabled:opacity-50"
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2.5">
+                <label className="text-xs font-black uppercase tracking-widest text-neutral-400">
+                  Correo del Administrador:
+                </label>
+                <div className="relative group">
+                  <input 
+                    type="email" 
+                    placeholder="Ej. admin@universidad.edu" 
+                    required 
+                    value={correoAdmin}
+                    onChange={(e) => setCorreoAdmin(e.target.value)}
+                    disabled={loading || success}
+                    className="w-full px-4 py-4 bg-white/5 border border-white/10 rounded-[20px] text-sm font-bold placeholder:text-neutral-600 focus:outline-none focus:border-blue-500/50 focus:bg-blue-500/5 transition-all text-white disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                <label className="text-xs font-black uppercase tracking-widest text-neutral-400">
+                  Dominio de Correos Permitido:
+                </label>
+                <div className="relative group">
+                  <input 
+                    type="text" 
+                    placeholder="Ej. @utc.edu.mx" 
+                    required 
+                    value={dominio}
+                    onChange={(e) => setDominio(e.target.value)}
+                    disabled={loading || success}
+                    className="w-full px-4 py-4 bg-white/5 border border-white/10 rounded-[20px] text-sm font-bold placeholder:text-neutral-600 focus:outline-none focus:border-blue-500/50 focus:bg-blue-500/5 transition-all text-white disabled:opacity-50"
                   />
                 </div>
               </div>
