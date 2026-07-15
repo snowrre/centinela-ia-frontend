@@ -16,6 +16,7 @@ import StudentPortal from './components/StudentPortal';
 import AdminDashboard from './components/AdminDashboard';
 import BiometricAuth from './components/BiometricAuth';
 import ProcesarPago from './components/ProcesarPago';
+import RegistroCampus from './components/RegistroCampus';
 import { useBiometric } from './context/BiometricContext';
 import { Toaster } from 'react-hot-toast';
 import { useDeviceRestriction } from './hooks/useDeviceRestriction';
@@ -26,7 +27,7 @@ function cn(...inputs) {
 
 export default function App() {
   const [view, setView] = useState(() => {
-    if (window.location.pathname === '/exito') {
+    if (window.location.pathname === '/exito' || window.location.pathname === '/registro-campus') {
       return 'exito';
     }
     // Si venimos de Stripe (después del pago), mostramos el componente de procesamiento
@@ -83,7 +84,7 @@ export default function App() {
   }
 
   if (view === 'exito') {
-    return <Exito />;
+    return <RegistroCampus />;
   }
 
   if (view === 'marketing') {
@@ -390,13 +391,5 @@ function MobileBlockScreen() {
   );
 }
 
-function Exito() {
-  return (
-    <div style={{ textAlign: 'center', padding: '50px', color: 'white', background: '#0a0a0a', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      <h1 style={{ fontSize: '2rem', marginBottom: '20px' }}>¡Pago Aprobado! ✅</h1>
-      <p style={{ marginBottom: '30px' }}>Bienvenido a Centinela IA. Tu Licencia Campus ha sido activada.</p>
-      <a href="/" style={{ padding: '10px 20px', background: '#2563eb', color: 'white', borderRadius: '8px', textDecoration: 'none', fontWeight: 'bold' }}>Volver al inicio</a>
-    </div>
-  );
-}
+
 
