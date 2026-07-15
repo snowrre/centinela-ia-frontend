@@ -33,16 +33,9 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
       const esDocente = view === 'teacher_login';
 
       if (esDocente) {
-        if (isRegistering) {
-          const { data, error } = await supabase.auth.signUp({ email, password });
-          if (error) throw error;
-          toast.success("Registro exitoso. Bienvenido a Centinela IA");
-          setIsRegistering(false); 
-        } else {
-          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) throw error;
-          if (onLoginTeacher) onLoginTeacher(data.user); 
-        }
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        if (onLoginTeacher) onLoginTeacher(data.user); 
       } else {
         // Lógica de Alumno
         if (isRegistering) {
@@ -203,12 +196,12 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
 
               <h2 className="text-lg font-bold mb-1 transition-all">
                 {view === 'teacher_login' 
-                  ? (isRegistering ? 'Crear Cuenta Docente' : 'Bienvenido, Docente') 
+                  ? 'Bienvenido, Docente'
                   : (isRegistering ? 'Registro de Alumno' : 'Acceso a Examen')}
               </h2>
               <p className="text-xs text-neutral-500 mb-8 transition-all">
                 {view === 'teacher_login' 
-                  ? (isRegistering ? 'Regístrate para gestionar tus evaluaciones.' : 'Introduce tus credenciales para continuar.') 
+                  ? 'Introduce tus credenciales para continuar.'
                   : (isRegistering ? 'Crea tu cuenta para poder presentar evaluaciones.' : 'Ingresa tus datos para comenzar la evaluación.')}
               </p>
 
@@ -289,12 +282,12 @@ export default function LoginLanding({ onLoginTeacher, onLoginStudent }) {
                 >
                   {loading 
                     ? 'Validando...' 
-                    : (isRegistering 
-                        ? 'Registrarse' 
-                        : (view === 'teacher_login' ? 'Entrar al Panel Docente' : 'Entrar al Examen'))}
+                    : (view === 'teacher_login' 
+                        ? 'Entrar al Panel Docente'
+                        : (isRegistering ? 'Registrarse' : 'Entrar al Examen'))}
                 </button>
 
-                {(view === 'teacher_login' || view === 'student_login') && (
+                {view === 'student_login' && (
                   <div className="mt-4 text-center animate-in fade-in duration-500">
                     <button 
                       type="button" 
