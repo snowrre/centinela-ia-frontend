@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   ShieldAlert, AlertCircle, AlertTriangle,
   Users, Presentation, Activity, Video, Clock, ChevronRight, Mic, Trash2, Folder, Loader2
@@ -9,7 +10,7 @@ import { supabase } from '../lib/supabase';
 import Swal from 'sweetalert2';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-
+import { SubmissionCard } from './SubmissionCard';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -28,7 +29,27 @@ export default function AdminDashboard({ darkMode }) {
   // ── Telemetría Biométrica en Tiempo Real ─────────────────────────────────
   const [alertasBio, setAlertasBio] = useState([]);
 
+  // 2. Crea la función dentro de tu componente
+  const exportarAExcel = () => {
+    const entregasDelExamen = submissions.filter(sub => String(sub.exam_pin) === String(filterPin));
+    const datosFormateados = entregasDelExamen.map((alumno) => ({
+      "Matrícula": alumno.student_name || "N/A",
+      "Nombre del Alumno": alumno.nombre_real || studentStatus[alumno.student_name]?.nombre || alumno.student_name || "N/A",
+      "Calificación": alumno.score,
+      "Estado": alumno.estado_calificacion || "calificado",
+      "Fecha de Entrega": new Date(alumno.created_at).toLocaleDateString('es-MX')
+    }));
 
+    // 3. Convertimos el JSON limpio a una hoja de trabajo (Worksheet)
+    const hojaDeTrabajo = XLSX.utils.json_to_sheet(datosFormateados);
+
+    // 4. Creamos un libro de Excel (Workbook) y le pegamos nuestra hoja
+    const libroDeExcel = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libroDeExcel, hojaDeTrabajo, "Calificaciones");
+
+    // 5. Ordenamos la descarga automática en la PC del profesor
+    XLSX.writeFile(libroDeExcel, "Reporte_Centinela_IA.xlsx");
+  };
 
   const showToast = (message, type = 'success') => {
     Swal.fire({
@@ -120,7 +141,24 @@ export default function AdminDashboard({ darkMode }) {
             .select('*')
             .in('exam_pin', misPinesDeSala)
             .order('created_at', { ascending: false });
-          subData = subs || [];
+          
+          if (subs && subs.length > 0) {
+            const listaMatriculas = subs.map(sub => sub.student_name);
+            const { data: perfilesAlumnos } = await supabase
+              .from('alumnos')
+              .select('matricula, nombre_completo')
+              .in('matricula', listaMatriculas);
+              
+            subData = subs.map(sub => {
+              const alumnoEncontrado = perfilesAlumnos?.find(p => String(p.matricula) === String(sub.student_name));
+              return {
+                ...sub,
+                nombre_real: alumnoEncontrado ? alumnoEncontrado.nombre_completo : null
+              };
+            });
+          } else {
+            subData = [];
+          }
       }
       
       setLogs(logData);
@@ -160,6 +198,115 @@ export default function AdminDashboard({ darkMode }) {
       message: '¿Eliminar todos los registros de esta sala? Esta acción borrará las alertas y sesiones de la base de datos de forma permanente.'
     });
   };
+
+  // LA FUNCIÓN DESTRUCTIVA: Expulsa al alumno
+  const bloquearAlumno = async (matricula) => {
+    Swal.fire({
+      title: `¿Expulsar al alumno ${matricula}?`,
+      text: "Se bloqueará su pantalla y no podrá volver a entrar.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Sí, expulsar',
+      cancelButtonText: 'Cancelar',
+      background: '#ffffff',
+      borderRadius: '1rem',
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          console.log(`Intentando expulsar al alumno: ${matricula}...`);
+          
+          const { data, error } = await supabase
+            .from('alumnos') 
+            .update({ comando: 'EXPULSAR', estado_examen: 'BLOQUEADO' })
+            .eq('matricula', matricula)
+            .select();
+
+          await supabase.from('commands').insert([{ 
+            matricula, 
+            command: 'EXPULSAR', 
+            payload: { message: 'Expulsado' } 
+          }]);
+
+          if (error) {
+            console.error("Supabase rechazó la expulsión en la tabla alumnos:", error.message);
+          }
+
+          Swal.fire({
+            title: '¡Expulsado!',
+            text: `El alumno ${matricula} ha sido bloqueado exitosamente.`,
+            icon: 'success',
+            timer: 1500,
+            showConfirmButton: false
+          });
+          
+        } catch (err) {
+          console.error("Error crítico en el botón:", err);
+        }
+      }
+    });
+  };
+
+  // 1. Función para borrar UNA sola alerta
+  const borrarAlerta = async (idAlerta) => {
+    try {
+      const { error } = await supabase
+        .from('telemetria_examenes')
+        .delete()
+        .eq('id', idAlerta);
+
+      if (error) throw error;
+      
+      // Limpiar la UI inmediatamente
+      setAlertasBio(prev => prev.filter(a => a.id !== idAlerta));
+    } catch (error) {
+      console.error("Error al borrar la alerta:", error);
+      alert("Error al borrar: " + error.message);
+    }
+  };
+
+  // 2. Función para vaciar TODO el historial biométrico
+  const vaciarHistorial = () => {
+    Swal.fire({
+      title: '¿Limpiar historial?',
+      text: "Se eliminarán todas las alertas biométricas. Esta acción no se puede deshacer.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Sí, eliminar todo',
+      cancelButtonText: 'Cancelar',
+      background: '#ffffff',
+      borderRadius: '1rem',
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          const { error } = await supabase
+            .from('telemetria_examenes')
+            .delete()
+            .not('id', 'is', null); 
+
+          if (error) throw error;
+          
+          // Vaciar la pantalla inmediatamente
+          setAlertasBio([]);
+          
+          Swal.fire({
+            title: '¡Limpiado!',
+            text: 'El historial está vacío.',
+            icon: 'success',
+            timer: 1500,
+            showConfirmButton: false
+          });
+        } catch (error) {
+          console.error("Error al vaciar el historial:", error);
+          alert("Error al limpiar historial: " + error.message);
+        }
+      }
+    });
+  };
+
 
   const promptClearAll = () => {
     setConfirmModal({
@@ -306,7 +453,11 @@ export default function AdminDashboard({ darkMode }) {
     setDeletingPin(null);
 
     try {
-      // 1. Ejecuta la promesa primero. Bloqueo de actualización optimista.
+      // 1. Primero aniquilamos los resultados y logs huérfanos usando el PIN (Hijos)
+      await supabase.from('camera_logs').delete().eq('pin_sala', pinToDelete);
+      await supabase.from('exam_submissions').delete().eq('exam_pin', pinToDelete);
+
+      // 2. Una vez limpia la sala, borramos el examen (Padre)
       const { error } = await supabase.from('exams').delete().eq('pin_sala', pinToDelete);
       
       if (error) {
@@ -314,10 +465,6 @@ export default function AdminDashboard({ darkMode }) {
         showToast('Error al eliminar. Revisa la consola.', 'error');
         return;
       }
-
-      // Borrar de forma asíncrona de otras tablas si la principal tuvo éxito
-      await supabase.from('camera_logs').delete().eq('pin_sala', pinToDelete);
-      await supabase.from('exam_submissions').delete().eq('exam_pin', pinToDelete);
 
       // SOLO si no hay error, actualizar el estado
       setActiveExams(prev => prev.filter(exam =>
@@ -368,6 +515,36 @@ export default function AdminDashboard({ darkMode }) {
     } catch (err) {
       console.error('Error de Supabase:', err);
       showToast('Error al eliminar. Revisa la consola.', 'error');
+    }
+  };
+
+  // ── FUNCIONALIDADES HÍBRIDAS: CONTROL DE INTENTOS Y CALIFICACIÓN ──
+  const handleSegundaOportunidad = async (submissionId) => {
+    if (!window.confirm("¿Seguro que deseas borrar esta entrega? El alumno podrá volver a hacer el examen.")) return;
+    try {
+      const { error } = await supabase
+        .from('exam_submissions')
+        .delete()
+        .eq('id', submissionId);
+      if (error) throw error;
+      showToast('Segunda oportunidad habilitada.', 'success');
+      setSubmissions(prev => prev.filter(s => s.id !== submissionId));
+    } catch (err) {
+      showToast('Error al habilitar segunda oportunidad.', 'error');
+    }
+  };
+
+  const handleUpdateScore = async (submissionId, newScore, feedback = "") => {
+    try {
+      const { error } = await supabase
+        .from('exam_submissions')
+        .update({ score: newScore, estado_calificacion: 'calificado', feedback_profesor: feedback })
+        .eq('id', submissionId);
+      if (error) throw error;
+      showToast('Calificación actualizada.', 'success');
+      setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, score: newScore, estado_calificacion: 'calificado', feedback_profesor: feedback } : s));
+    } catch (err) {
+      showToast('Error al actualizar calificación.', 'error');
     }
   };
 
@@ -427,7 +604,7 @@ export default function AdminDashboard({ darkMode }) {
       const { data } = await supabase
         .from('telemetria_examenes')
         .select('*')
-        .order('created_at', { ascending: false })
+        .order('creado_en', { ascending: false })
         .limit(30);
       if (data) setAlertasBio(data);
     };
@@ -835,10 +1012,26 @@ export default function AdminDashboard({ darkMode }) {
                   {alertasBio.length} evento{alertasBio.length !== 1 ? 's' : ''}
                 </span>
               )}
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-black uppercase tracking-widest">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                En Vivo
-              </span>
+
+              {/* NUEVO BOTÓN: VACIAR TODO */}
+              <button 
+                onClick={vaciarHistorial}
+                className="text-xs text-neutral-500 hover:text-red-600 underline font-semibold transition-colors"
+              >
+                Limpiar Historial
+              </button>
+
+              {Object.keys(studentStatus).length > 0 ? (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-black uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  En Vivo
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-500 text-[10px] font-black uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
+                  Inactivo
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -853,7 +1046,7 @@ export default function AdminDashboard({ darkMode }) {
           ) : (
             alertasBio.map((alerta) => {
               const cfg = getBioAlertConfig(alerta.tipo_anomalia);
-              const conf = Math.round((alerta.nivel_confianza || 0) * 100);
+              const conf = Math.round(alerta.nivel_confianza || 0);
               return (
                 <div
                   key={alerta.id}
@@ -868,9 +1061,22 @@ export default function AdminDashboard({ darkMode }) {
                       <h4 className={cn('font-extrabold text-sm uppercase tracking-wide leading-tight', cfg.text)}>
                         {cfg.label}
                       </h4>
-                      <span className="text-[10px] font-mono text-neutral-500 bg-white dark:bg-white/10 px-2 py-0.5 rounded-lg shadow-sm border dark:border-white/10 shrink-0">
-                        {new Date(alerta.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-neutral-500 bg-white dark:bg-white/10 px-2 py-0.5 rounded-lg shadow-sm border dark:border-white/10 shrink-0">
+                          {new Date(alerta.creado_en).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                        
+                        {/* NUEVO BOTÓN: BORRAR INDIVIDUAL */}
+                        <button 
+                          onClick={() => borrarAlerta(alerta.id)}
+                          className="text-neutral-400 hover:text-red-500 transition-colors p-1"
+                          title="Eliminar esta alerta"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-white dark:bg-white/10 text-neutral-800 dark:text-neutral-200 border dark:border-white/10 shadow-sm">
@@ -890,6 +1096,19 @@ export default function AdminDashboard({ darkMode }) {
                           style={{ width: `${conf}%` }}
                         />
                       </div>
+                    )}
+                    
+                    {/* BOTÓN DE BLOQUEO DOCENTE EN TIEMPO REAL */}
+                    {alerta.estudiante_id && (
+                      <button 
+                        onClick={() => bloquearAlumno(alerta.estudiante_id)}
+                        className="mt-3 w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 flex justify-center items-center gap-2 text-xs"
+                      >
+                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                        </svg>
+                        Bloquear Alumno
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1071,7 +1290,7 @@ export default function AdminDashboard({ darkMode }) {
                               {/* Botón de Expulsión contextual — aparece en críticos Y en abandonos/fullscreen */}
                               {(isCritical || isWarning) && log.matricula && (
                                 <button
-                                  onClick={() => confirmKick(log.matricula)}
+                                  onClick={() => bloquearAlumno(log.matricula)}
                                   className="mt-3 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-semibold rounded-lg shadow-md hover:shadow-red-500/40 hover:shadow-lg transform transition-all duration-200 hover:scale-[1.03] active:scale-95 border border-red-400/30"
                                 >
                                   <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1138,35 +1357,30 @@ export default function AdminDashboard({ darkMode }) {
 
       {filterPin && (
         <div className="mt-12 space-y-8">
-            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-neutral-500">Resultados del Examen</h3>
+            <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-neutral-500">Resultados del Examen</h3>
+                <button
+                  onClick={exportarAExcel}
+                  className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold py-2.5 px-5 rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
+                >
+                  {/* Ícono de Documento */}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Exportar a Excel
+                </button>
+            </div>
             <div className={cn("rounded-[40px] border overflow-hidden", darkMode ? "bg-[#111111] border-white/10" : "bg-white border-neutral-200 shadow-xl")}>
                 <div className="p-8 space-y-4">
                     {submissions.filter(sub => String(sub.exam_pin) === String(filterPin)).map(sub => (
-                        <div key={sub.id} className={cn("p-6 rounded-[28px] border-2 transition-all flex flex-col gap-4", darkMode ? "bg-white/5 border-white/5" : "bg-neutral-50 border-neutral-100")}>
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <h5 className="text-sm font-black uppercase">{sub.student_name}</h5>
-                                    <p className="text-[10px] font-bold text-neutral-400 mt-1">Enviado: {new Date(sub.created_at).toLocaleTimeString()}</p>
-                                </div>
-                                <div className="px-4 py-2 bg-emerald-500/10 text-emerald-500 rounded-xl text-[14px] font-black uppercase tracking-widest border border-emerald-500/20">
-                                    {sub.score !== undefined && sub.score !== null ? `Calificación: ${sub.score}/100` : 'Entregado'}
-                                </div>
-                            </div>
-                            
-                            {/* Desglose de respuestas */}
-                            {sub.answers && (
-                                <div className="mt-2 p-4 bg-black/5 dark:bg-black/20 rounded-2xl">
-                                    <p className="text-[10px] font-bold text-neutral-500 uppercase mb-3">Desglose de Respuestas:</p>
-                                    <div className="flex flex-wrap gap-2">
-                                        {Object.entries(sub.answers).map(([qId, ans]) => (
-                                            <span key={qId} className="px-3 py-1.5 bg-white dark:bg-[#111] rounded-lg text-[10px] font-black border dark:border-white/10 uppercase">
-                                                {typeof ans === 'object' ? ans.text : ans}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        <SubmissionCard 
+                            key={sub.id} 
+                            submission={sub} 
+                            examId={activeExams.find(e => String(e.pin_sala) === String(filterPin))?.id}
+                            onSegundaOportunidad={handleSegundaOportunidad} 
+                            onUpdateScore={handleUpdateScore} 
+                            darkMode={darkMode} 
+                        />
                     ))}
                     {submissions.filter(sub => String(sub.exam_pin) === String(filterPin)).length === 0 && (
                         <div className="flex flex-col items-center justify-center opacity-40 py-10">
