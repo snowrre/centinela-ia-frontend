@@ -1,0 +1,6 @@
+Flask
+boto3
+google-cloud-vision
+google-generativeai
+PyMuPDF
+python-dotenv
